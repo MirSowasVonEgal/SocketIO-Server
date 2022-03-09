@@ -1,6 +1,6 @@
 
 const mongoose = require('mongoose');
-const { update } = require('../models/User');
+const Token = require('../models/Token');
 const User = require('../models/User')
 var connectedUser = new Map();
 module.exports = class MongoDB {
@@ -39,8 +39,11 @@ module.exports = class MongoDB {
       if(user == null) {
         callback({ message: "User wurde nicht gefunden." })
       } else if(user.password == payload.password) {
-        callback({ message: "Du wurdest eingeloggt." });
-        connectedUser.set(socket.id, { id: user.id, username: user.username });
+        user.__v = undefined;
+        user.password = undefined;
+        callback({ message: "Du wurdest eingeloggt.", user });
+        connectedUser.set(socket.id, { id: user.id });
+        socket.user = user;
       } else {
         callback({ message: "Das Passwort stimmt nicht mit dem Nutzer überein." })
       }
@@ -54,27 +57,25 @@ module.exports = class MongoDB {
       connectedUser.forEach((user, id) => {
         var userID = data.documentKey._id.toString();
         if(user.id && user.id == userID) {
+          const socket = this.io.sockets.sockets.get(id);
           if(data.operationType == 'replace') {
             var updated = data.fullDocument;
-            delete updated._id;
             delete updated.__v;
-            updated.id = userID; 
-            connectedUser.set(id, updated)
+            delete updated.password;
+            updated._id = userID; 
+            socket.user = updated;
           } else {
-            var updated = connectedUser.get(id);
+            var updated = socket.user;
             Object.entries(data.updateDescription.updatedFields).forEach(field => {
               updated[field[0]] = field[1];
-              connectedUser.set(id, updated)
             })
+            socket.user = updated;
           }
-          // TODO: Send User Updated Profile.
+          socket.emit("user:profile", { user: socket.user });
         }
       })
     });
-    setTimeout(() => {
-      User.findByIdAndUpdate("6227ce98f07c267aef4f83c6",  { $set:  { username: "Test7" } }, (error, document) => {
-        console.log(error);
-      });
-    }, 3000)
+
+    new Token({ token: "XXX", expires: new Date(Date.now() + 10) }).save();
   }
 }
