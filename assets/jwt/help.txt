@@ -1,0 +1,4 @@
+# generate private key
+openssl ecparam -name prime256v1 -genkey -noout -out private.ec.key
+# extatract public key from it
+openssl ec -in private.ec.key -pubout > public.ec.pem

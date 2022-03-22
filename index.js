@@ -5,8 +5,7 @@ const { Server } = require("socket.io");
 const numCPUs = require("os").cpus().length;
 const { setupMaster, setupWorker } = require("@socket.io/sticky");
 const { createAdapter, setupPrimary } = require("@socket.io/cluster-adapter");
-const MongoDB = require("./manager/MongoDB");
-const { isKeyObject } = require('util/types');
+const MongoDBManager = require("./manager/MongoDBManager");
 
 if (cluster.isMaster) {
   console.log(`Master ${process.pid} is running`);
@@ -35,6 +34,17 @@ if (cluster.isMaster) {
     console.log(`Worker ${worker.process.pid} died`);
     cluster.fork();
   });
+
+  cluster.on('fork', (worker) => {
+    worker.on('message', (data) => {
+      if(data.type && data.type == 'broadcast') {
+        Object.keys(cluster.workers).forEach(id => {
+          cluster.workers[id].send(data);
+        });
+      }
+    });
+  });
+
 } else {
   console.log(`Worker ${process.pid} started`);
 
@@ -47,8 +57,26 @@ if (cluster.isMaster) {
   // setup connection with the primary process
   setupWorker(io);
 
-  const mongodb = new MongoDB(io);
-  
-  mongodb.updateConnectedUser();
+  const userHandler = require("./handlers/UserHandler");
+  const ts3AudioBotHandler = require("./handlers/TS3AudioBotHandler");
+  const connectionHandler = require("./handlers/ConnectionHandler");
 
+  const mongodbManager = new MongoDBManager(io);
+  
+  connectionHandler(io, mongodbManager);
+  ts3AudioBotHandler(io, null);
+
+  const onConnection = (socket) => {
+    if(!socket.user) 
+      socket.emit('user:profile', { authenticated: false });
+
+    userHandler(io, socket, mongodbManager);
+    ts3AudioBotHandler(io, socket);
+
+    socket.on('disconnect', () => {
+      mongodbManager.deleteConnectedUser(socket);
+    });
+  }
+
+  io.on("connection", onConnection);
 }
